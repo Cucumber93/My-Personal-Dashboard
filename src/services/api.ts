@@ -18,6 +18,23 @@ export const signUp = async (data: { name: string; email: string; passwordHash: 
   return response.json();
 };
 
+export const signIn = async (data: { email: string; passwordHash: string }) => {
+  const response = await fetch(`${API_BASE_URL}/users/signin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to sign in');
+  }
+
+  return response.json();
+};
+
 // Upload API - Upload image to MinIO and get URL
 export const uploadImage = async (file: File): Promise<string> => {
   const formData = new FormData();

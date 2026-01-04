@@ -5,38 +5,41 @@ import SearchBar from './components/SearchBar';
 import AddProjectButton from './components/AddProjectButton';
 import ProjectCard from './components/ProjectCard';
 import ProjectModal from './components/ProjectModal';
-import SignUpModal from './components/SignUpModal';
+import SignIn from './pages/SignIn';
+import SignUp from './pages/SignUp';
 import { getProjects, createProject, updateProject, searchProjects } from './services/api';
+import { getAuthData, clearAuth, type User } from './utils/auth';
 import './App.css';
+
+type AuthView = 'signin' | 'signup';
 
 function App() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authView, setAuthView] = useState<AuthView>('signin');
   const [searchQuery, setSearchQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [signUpModalOpen, setSignUpModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [modalMode, setModalMode] = useState<'add' | 'view' | 'edit'>('add');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Check for stored userId on mount
+  // Check for stored auth data on mount
   useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
-    if (storedUserId) {
-      setUserId(parseInt(storedUserId));
-    } else {
-      setSignUpModalOpen(true);
+    const authData = getAuthData();
+    if (authData) {
+      setUser(authData.user);
     }
+    setLoading(false);
   }, []);
 
   const loadProjects = async () => {
-    if (!userId) return;
+    if (!user) return;
     
     try {
       setLoading(true);
       setError('');
-      const data = await getProjects(userId);
+      const data = await getProjects(user.id);
       setProjects(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projects');
@@ -47,11 +50,11 @@ function App() {
   };
 
   const handleSearch = async (query: string) => {
-    if (!userId) return;
+    if (!user) return;
     
     try {
       setLoading(true);
-      const data = await searchProjects(query, userId);
+      const data = await searchProjects(query, user.id);
       setProjects(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search projects');
@@ -61,31 +64,27 @@ function App() {
     }
   };
 
-  // Load projects when userId is available
+  // Load projects when user is available
   useEffect(() => {
-    if (userId) {
+    if (user) {
       loadProjects();
-    } else {
-      setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [user]);
 
   // Search projects
   useEffect(() => {
-    if (userId && searchQuery) {
+    if (user && searchQuery) {
       handleSearch(searchQuery);
-    } else if (userId) {
+    } else if (user) {
       loadProjects();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, userId]);
+  }, [searchQuery, user]);
 
   const handleAddProject = () => {
-    if (!userId) {
-      setSignUpModalOpen(true);
-      return;
-    }
+    if (!user) return;
+    
     setSelectedProject(null);
     setModalMode('add');
     setModalOpen(true);
@@ -101,11 +100,11 @@ function App() {
     projectData: CreateProjectDto | UpdateProjectDto,
     projectId?: number
   ) => {
-    if (!userId) return;
+    if (!user) return;
 
     if (projectId) {
       // Update existing project
-      const updated = await updateProject(projectId, userId, projectData as UpdateProjectDto);
+      const updated = await updateProject(projectId, user.id, projectData as UpdateProjectDto);
       setProjects(projects.map((p) => (p.id === projectId ? updated : p)));
     } else {
       // Create new project
@@ -121,10 +120,19 @@ function App() {
     setSelectedProject(null);
   };
 
-  const handleSignUpSuccess = (newUserId: number) => {
-    setUserId(newUserId);
-    localStorage.setItem('userId', newUserId.toString());
-    setSignUpModalOpen(false);
+  const handleAuthSuccess = () => {
+    // Re-fetch auth data after successful sign in/up
+    const authData = getAuthData();
+    if (authData) {
+      setUser(authData.user);
+    }
+  };
+
+  const handleSignOut = () => {
+    clearAuth();
+    setUser(null);
+    setProjects([]);
+    setAuthView('signin');
   };
 
   // Filter projects client-side as fallback (API search is primary)
@@ -134,33 +142,42 @@ function App() {
       )
     : projects;
 
-  if (!userId) {
+  // Show authentication pages if user is not logged in
+  if (!user) {
+    if (authView === 'signup') {
+      return (
+        <SignUp
+          onSignUpSuccess={handleAuthSuccess}
+          onSwitchToSignIn={() => setAuthView('signin')}
+        />
+      );
+    }
+    
     return (
-      <MainLayout>
-        <div className="dashboard-container">
-          <div className="hero-section">
-            <h1 className="hero-title">Welcome to Your Dashboard</h1>
-            <p className="hero-subtitle">Please sign up to get started</p>
-          </div>
-          <SignUpModal
-            isOpen={signUpModalOpen}
-            onClose={() => {}}
-            onSuccess={handleSignUpSuccess}
-          />
-        </div>
-      </MainLayout>
+      <SignIn
+        onSignInSuccess={handleAuthSuccess}
+        onSwitchToSignUp={() => setAuthView('signup')}
+      />
     );
   }
 
   return (
     <MainLayout>
       <div className="dashboard-container">
-        {/* Hero Section */}
+        {/* Hero Section with User Info */}
         <div className="hero-section">
-          <h1 className="hero-title">All your projects, in one dashboard.</h1>
-          <p className="hero-subtitle">
-            Add projects, track progress, and keep everything organized.
-          </p>
+          <div>
+            <h1 className="hero-title">All your projects, in one dashboard.</h1>
+            <p className="hero-subtitle">
+              Add projects, track progress, and keep everything organized.
+            </p>
+          </div>
+          <div className="user-info">
+            <span className="user-name">👋 Hi, {user.name}</span>
+            <button onClick={handleSignOut} className="signout-button">
+              Sign Out
+            </button>
+          </div>
         </div>
 
         {/* Search and Add Section */}
@@ -213,7 +230,7 @@ function App() {
           isOpen={modalOpen}
           project={selectedProject}
           mode={modalMode}
-          userId={userId}
+          userId={user.id}
           onClose={handleCloseModal}
           onSave={handleSaveProject}
         />
