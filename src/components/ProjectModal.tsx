@@ -1,61 +1,149 @@
-import { useState, useEffect } from 'react';
-import type { Project } from '../types/project';
+import { useState, useEffect, useRef } from 'react';
+import type { Project, CreateProjectDto, UpdateProjectDto } from '../types/project';
+import { uploadImage } from '../services/api';
 import './ProjectModal.css';
 
 interface ProjectModalProps {
   isOpen: boolean;
   project: Project | null;
   mode: 'add' | 'view' | 'edit';
+  userId: number;
   onClose: () => void;
-  onSave: (project: Omit<Project, 'id'>) => void;
+  onSave: (data: CreateProjectDto | UpdateProjectDto, projectId?: number) => Promise<void>;
 }
 
-function ProjectModal({ isOpen, project, mode, onClose, onSave }: ProjectModalProps) {
+function ProjectModal({ isOpen, project, mode, userId, onClose, onSave }: ProjectModalProps) {
   const [formData, setFormData] = useState({
-    title: '',
+    projectName: '',
     description: '',
     image: '',
-    tag: '',
-    tagColor: 'default',
   });
 
+  const [imagePreview, setImagePreview] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (project && mode !== 'add') {
       setFormData({
-        title: project.title,
-        description: project.description,
-        image: project.image,
-        tag: project.tag || '',
-        tagColor: project.tagColor || 'default',
+        projectName: project.projectName,
+        description: project.description || '',
+        image: project.image || '',
       });
+      setImagePreview(project.image || '');
       setIsEditing(mode === 'edit');
+      setSelectedFile(null); // Reset selected file when viewing/editing existing project
     } else {
       setFormData({
-        title: '',
+        projectName: '',
         description: '',
         image: '',
-        tag: '',
-        tagColor: 'default',
       });
+      setImagePreview('');
       setIsEditing(true);
+      setSelectedFile(null); // Reset selected file when adding new project
     }
+    setError('');
   }, [project, mode, isOpen]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB');
+      return;
+    }
+
+    setError('');
+
+    // Store file for later upload (when Save is clicked)
+    setSelectedFile(file);
+
+    // Create preview only (don't upload yet)
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setFormData({ ...formData, image: '' });
+    setImagePreview('');
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.title.trim() && formData.description.trim()) {
-      onSave({
-        title: formData.title,
-        description: formData.description,
-        image: formData.image || 'https://via.placeholder.com/400x200?text=Project+Image',
-        tag: formData.tag || undefined,
-        tagColor: formData.tagColor || undefined,
-      });
-      onClose();
+    setError('');
+    
+    if (!formData.projectName.trim()) {
+      setError('Project name is required');
+      return;
+    }
+
+    setLoading(true);
+    setUploading(false);
+    
+    try {
+      let imageUrl = formData.image; // Use existing image URL if editing and no new file selected
+
+      // If a new file was selected, upload it to MinIO first
+      if (selectedFile) {
+        setUploading(true);
+        try {
+          console.log('📤 Uploading image to MinIO...');
+          imageUrl = await uploadImage(selectedFile);
+          console.log('✅ Image uploaded to MinIO:', imageUrl);
+          setUploading(false);
+        } catch (uploadError) {
+          setUploading(false);
+          setError(uploadError instanceof Error ? uploadError.message : 'Failed to upload image');
+          return;
+        }
+      }
+
+      // Now save the project with the image URL
+      if (mode === 'add') {
+        await onSave({
+          userId,
+          projectName: formData.projectName,
+          description: formData.description || null,
+          image: imageUrl || null,
+        });
+      } else if (project) {
+        await onSave({
+          projectName: formData.projectName,
+          description: formData.description || null,
+          image: imageUrl || null,
+        }, project.id);
+      }
+      
+      // Reset file selection after successful save
+      setSelectedFile(null);
+      handleClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save project');
+    } finally {
+      setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -89,37 +177,91 @@ function ProjectModal({ isOpen, project, mode, onClose, onSave }: ProjectModalPr
 
         <form onSubmit={handleSubmit} className="modal-form">
           <div className="form-group">
-            <label htmlFor="image">Project Image URL</label>
+            <label htmlFor="image">Project Image</label>
             {canEdit ? (
-              <input
-                type="url"
-                id="image"
-                value={formData.image}
-                onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                placeholder="https://example.com/image.jpg"
-                className="form-input"
-              />
+              <div className="image-upload-container">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  id="image"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="file-input"
+                  disabled={uploading}
+                />
+                {uploading && <div className="upload-status">Uploading to MinIO...</div>}
+                {loading && selectedFile && <div className="upload-status">Saving project...</div>}
+                {(imagePreview || formData.image) && (
+                  <div className="image-preview-container">
+                    <img
+                      src={imagePreview || formData.image}
+                      alt="Preview"
+                      className="image-preview"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="remove-image-btn"
+                      disabled={uploading}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {!imagePreview && !formData.image && (
+                  <label htmlFor="image" className="file-input-label">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="upload-icon"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span>Click to upload image</span>
+                    <span className="file-hint">PNG, JPG, GIF up to 5MB</span>
+                  </label>
+                )}
+              </div>
             ) : (
               <div className="form-preview-image">
-                <img src={formData.image || 'https://via.placeholder.com/400x200?text=Project+Image'} alt="Preview" />
+                <img
+                  src={formData.image || 'https://via.placeholder.com/400x200?text=Project+Image'}
+                  alt="Preview"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== 'https://via.placeholder.com/400x200?text=Image+Not+Found') {
+                      console.error('Failed to load image:', formData.image);
+                      target.src = 'https://via.placeholder.com/400x200?text=Image+Not+Found';
+                    }
+                  }}
+                />
               </div>
             )}
           </div>
 
+          {error && <div className="error-message">{error}</div>}
+
           <div className="form-group">
-            <label htmlFor="title">Title</label>
+            <label htmlFor="projectName">Project Name</label>
             {canEdit ? (
               <input
                 type="text"
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Enter project title"
+                id="projectName"
+                value={formData.projectName}
+                onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
+                placeholder="Enter project name"
                 className="form-input"
                 required
               />
             ) : (
-              <div className="form-display">{formData.title}</div>
+              <div className="form-display">{formData.projectName}</div>
             )}
           </div>
 
@@ -130,42 +272,12 @@ function ProjectModal({ isOpen, project, mode, onClose, onSave }: ProjectModalPr
                 id="description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Enter project description"
+                placeholder="Enter project description (optional)"
                 className="form-textarea"
                 rows={5}
-                required
               />
             ) : (
-              <div className="form-display">{formData.description}</div>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="tag">Tag (Optional)</label>
-            {canEdit ? (
-              <div className="form-row">
-                <input
-                  type="text"
-                  id="tag"
-                  value={formData.tag}
-                  onChange={(e) => setFormData({ ...formData, tag: e.target.value })}
-                  placeholder="e.g., Public, Draft"
-                  className="form-input"
-                />
-                <select
-                  value={formData.tagColor}
-                  onChange={(e) => setFormData({ ...formData, tagColor: e.target.value })}
-                  className="form-select"
-                >
-                  <option value="default">Default</option>
-                  <option value="green">Green</option>
-                  <option value="yellow">Yellow</option>
-                </select>
-              </div>
-            ) : (
-              formData.tag && (
-                <span className={`project-tag tag-${formData.tagColor}`}>{formData.tag}</span>
-              )
+              <div className="form-display">{formData.description || 'No description'}</div>
             )}
           </div>
 
@@ -180,8 +292,8 @@ function ProjectModal({ isOpen, project, mode, onClose, onSave }: ProjectModalPr
                 <button type="button" className="btn-cancel" onClick={handleClose}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-save">
-                  Save
+                <button type="submit" className="btn-save" disabled={loading || uploading}>
+                  {uploading ? 'Uploading Image...' : loading ? 'Saving...' : 'Save'}
                 </button>
               </>
             )}

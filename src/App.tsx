@@ -1,99 +1,91 @@
-import { useState } from 'react';
-import type { Project } from './types/project';
+import { useState, useEffect } from 'react';
+import type { Project, CreateProjectDto, UpdateProjectDto } from './types/project';
 import MainLayout from './layouts/MainLayout';
 import SearchBar from './components/SearchBar';
 import AddProjectButton from './components/AddProjectButton';
 import ProjectCard from './components/ProjectCard';
 import ProjectModal from './components/ProjectModal';
+import SignUpModal from './components/SignUpModal';
+import { getProjects, createProject, updateProject, searchProjects } from './services/api';
 import './App.css';
 
 function App() {
-  const [projects, setProjects] = useState<Project[]>([
-    {
-      id: '1',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Draft',
-      tagColor: 'yellow',
-    },
-    {
-      id: '2',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '3',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '4',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '5',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '6',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '7',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '8',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-    {
-      id: '9',
-      title: 'Title',
-      description: 'Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups.',
-      image: 'https://via.placeholder.com/400x200?text=Dashboard+Preview',
-      tag: 'Public',
-      tagColor: 'green',
-    },
-  ]);
-
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [userId, setUserId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [signUpModalOpen, setSignUpModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [modalMode, setModalMode] = useState<'add' | 'view' | 'edit'>('add');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Filter projects based on search query
-  const filteredProjects = projects.filter((project) =>
-    project.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Check for stored userId on mount
+  useEffect(() => {
+    const storedUserId = localStorage.getItem('userId');
+    if (storedUserId) {
+      setUserId(parseInt(storedUserId));
+    } else {
+      setSignUpModalOpen(true);
+    }
+  }, []);
+
+  const loadProjects = async () => {
+    if (!userId) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+      const data = await getProjects(userId);
+      setProjects(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load projects');
+      console.error('Error loading projects:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = async (query: string) => {
+    if (!userId) return;
+    
+    try {
+      setLoading(true);
+      const data = await searchProjects(query, userId);
+      setProjects(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to search projects');
+      console.error('Error searching projects:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load projects when userId is available
+  useEffect(() => {
+    if (userId) {
+      loadProjects();
+    } else {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // Search projects
+  useEffect(() => {
+    if (userId && searchQuery) {
+      handleSearch(searchQuery);
+    } else if (userId) {
+      loadProjects();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, userId]);
 
   const handleAddProject = () => {
+    if (!userId) {
+      setSignUpModalOpen(true);
+      return;
+    }
     setSelectedProject(null);
     setModalMode('add');
     setModalOpen(true);
@@ -105,23 +97,20 @@ function App() {
     setModalOpen(true);
   };
 
-  const handleSaveProject = (projectData: Omit<Project, 'id'>) => {
-    if (modalMode === 'add') {
-      // Add new project
-      const newProject: Project = {
-        ...projectData,
-        id: Date.now().toString(),
-      };
-      setProjects([...projects, newProject]);
-    } else if (selectedProject) {
+  const handleSaveProject = async (
+    projectData: CreateProjectDto | UpdateProjectDto,
+    projectId?: number
+  ) => {
+    if (!userId) return;
+
+    if (projectId) {
       // Update existing project
-      setProjects(
-        projects.map((p) =>
-          p.id === selectedProject.id
-            ? { ...projectData, id: selectedProject.id }
-            : p
-        )
-      );
+      const updated = await updateProject(projectId, userId, projectData as UpdateProjectDto);
+      setProjects(projects.map((p) => (p.id === projectId ? updated : p)));
+    } else {
+      // Create new project
+      const newProject = await createProject(projectData as CreateProjectDto);
+      setProjects([newProject, ...projects]);
     }
     setModalOpen(false);
     setSelectedProject(null);
@@ -131,6 +120,37 @@ function App() {
     setModalOpen(false);
     setSelectedProject(null);
   };
+
+  const handleSignUpSuccess = (newUserId: number) => {
+    setUserId(newUserId);
+    localStorage.setItem('userId', newUserId.toString());
+    setSignUpModalOpen(false);
+  };
+
+  // Filter projects client-side as fallback (API search is primary)
+  const filteredProjects = searchQuery
+    ? projects.filter((project) =>
+        project.projectName.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : projects;
+
+  if (!userId) {
+    return (
+      <MainLayout>
+        <div className="dashboard-container">
+          <div className="hero-section">
+            <h1 className="hero-title">Welcome to Your Dashboard</h1>
+            <p className="hero-subtitle">Please sign up to get started</p>
+          </div>
+          <SignUpModal
+            isOpen={signUpModalOpen}
+            onClose={() => {}}
+            onSuccess={handleSignUpSuccess}
+          />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -152,31 +172,48 @@ function App() {
         {/* Divider */}
         <div className="divider"></div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="error-banner">
+            <p>{error}</p>
+            <button onClick={() => setError('')}>×</button>
+          </div>
+        )}
+
         {/* Projects Section */}
         <div className="projects-section">
           <h2 className="section-title">My Projects</h2>
-          <div className="projects-grid">
-            {filteredProjects.length > 0 ? (
-              filteredProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onClick={() => handleCardClick(project)}
-                />
-              ))
-            ) : (
-              <div className="no-projects">
-                <p>No projects found matching "{searchQuery}"</p>
-              </div>
-            )}
-          </div>
+          {loading ? (
+            <div className="loading">Loading projects...</div>
+          ) : (
+            <div className="projects-grid">
+              {filteredProjects.length > 0 ? (
+                filteredProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    onClick={() => handleCardClick(project)}
+                  />
+                ))
+              ) : (
+                <div className="no-projects">
+                  <p>
+                    {searchQuery
+                      ? `No projects found matching "${searchQuery}"`
+                      : 'No projects yet. Click "ADD PROJECT" to create your first project!'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Modal */}
+        {/* Modals */}
         <ProjectModal
           isOpen={modalOpen}
           project={selectedProject}
           mode={modalMode}
+          userId={userId}
           onClose={handleCloseModal}
           onSave={handleSaveProject}
         />

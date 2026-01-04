@@ -10,16 +10,22 @@ function ProjectCard({ project, onClick }: ProjectCardProps) {
   return (
     <div className="project-card" onClick={onClick}>
       <div className="project-image-container">
-        <img src={project.image} alt={project.title} className="project-image" />
-        {project.tag && (
-          <span className={`project-tag tag-${project.tagColor || 'default'}`}>
-            {project.tag}
-          </span>
-        )}
+        <img 
+          src={project.image || 'https://via.placeholder.com/400x200?text=Project+Image'} 
+          alt={project.projectName} 
+          className="project-image"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== 'https://via.placeholder.com/400x200?text=Image+Not+Found') {
+              console.error('Failed to load image:', project.image);
+              target.src = 'https://via.placeholder.com/400x200?text=Image+Not+Found';
+            }
+          }}
+        />
       </div>
       <div className="project-content">
-        <h3 className="project-title">{project.title}</h3>
-        <p className="project-description">{project.description}</p>
+        <h3 className="project-title">{project.projectName}</h3>
+        <p className="project-description">{project.description || 'No description'}</p>
       </div>
     </div>
   );
