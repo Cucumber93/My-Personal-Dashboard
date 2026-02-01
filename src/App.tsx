@@ -167,10 +167,10 @@ function App() {
         {/* Hero Section with User Info */}
         <div className="hero-section">
           <div>
-            <h1 className="hero-title">All your projects, in one dashboard.</h1>
-            <p className="hero-subtitle">
-              Add projects, track progress, and keep everything organized.
-            </p>
+          <h1 className="hero-title">All your projects, in one dashboard.</h1>
+          <p className="hero-subtitle">
+            Add projects, track progress, and keep everything organized.
+          </p>
           </div>
           <div className="user-info">
             <span className="user-name">👋 Hi, {user.name}</span>
