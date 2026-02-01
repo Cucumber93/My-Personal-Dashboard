@@ -1,4 +1,5 @@
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { signIn } from '../services/api';
 import { setAuthData } from '../utils/auth';
 import './SignIn.css';
